@@ -4,13 +4,13 @@ __pycache__
 .venv
 venv
 .git
-.gitignore
 *.md
 LICENSE
 skills
 data
 .DS_Store
 target
+!target/air-reader-2.0.0.jar
 .idea
 .pytest_cache
 tests
