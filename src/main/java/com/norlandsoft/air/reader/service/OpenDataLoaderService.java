@@ -104,8 +104,59 @@ public class OpenDataLoaderService {
         OpenDataLoaderPDF.processFile(inputPath.toString(), odlConfig);
 
         String markdown = readMarkdownOutput(outputDir, inputPath);
+
+        // 当启用图片提取时，将 ODL 生成的 PNG 文件转为 base64 嵌入 markdown
+        if (config.isMarkdownWithImages() && markdown != null) {
+            markdown = embedImagesAsBase64(markdown, outputDir, inputPath);
+        }
+
         log.debug("PDF 解析完成，Markdown 长度: {}", markdown != null ? markdown.length() : 0);
         return markdown;
+    }
+
+    /**
+     * 将 ODL 生成的图片文件转换为 base64 data URI 嵌入 Markdown
+     *
+     * ODL 在启用 addImageToMarkdown 时会在 <outputDir>/<baseName>_images/ 下
+     * 生成 PNG 文件，并在 Markdown 中写入本地文件路径引用。
+     * 此方法读取这些 PNG 文件，将路径引用替换为 data:image/png;base64,... 格式，
+     * 使图片数据内嵌在 Markdown 文本中，不再依赖外部文件。
+     *
+     * @param markdown  原始 Markdown 内容（含本地路径图片引用）
+     * @param outputDir ODL 输出目录
+     * @param inputPath 原始 PDF 路径（用于推导图片目录名）
+     * @return 替换后的 Markdown 内容（含 base64 嵌入图片）
+     */
+    private String embedImagesAsBase64(String markdown, Path outputDir, Path inputPath) throws IOException {
+        String baseName = inputPath.getFileName().toString().replaceAll("\\.(?i)pdf$", "");
+        Path imagesDir = outputDir.resolve(baseName + "_images");
+
+        if (!Files.exists(imagesDir) || !Files.isDirectory(imagesDir)) {
+            log.debug("未找到图片目录: {}", imagesDir);
+            return markdown;
+        }
+
+        String result = markdown;
+        try (Stream<Path> walk = Files.list(imagesDir)) {
+            for (Path imageFile : walk.toList()) {
+                String imageName = imageFile.getFileName().toString();
+                if (!imageName.toLowerCase().endsWith(".png")) {
+                    continue;
+                }
+                byte[] imageBytes = Files.readAllBytes(imageFile);
+                String base64 = java.util.Base64.getEncoder().encodeToString(imageBytes);
+                String dataUri = "data:image/png;base64," + base64;
+
+                // 替换 markdown 中指向此图片的绝对路径引用
+                result = result.replace(imageFile.toString(), dataUri);
+                // 同时处理相对路径引用
+                result = result.replace(imagesDir.getFileName().toString() + "/" + imageName, dataUri);
+
+                log.debug("图片嵌入 base64: {} ({}KB)", imageName, imageBytes.length / 1024);
+            }
+        }
+
+        return result;
     }
 
     /**
