@@ -1,10 +1,10 @@
 services:
-  air-filereader:
+  air-reader:
     build:
       context: .
       dockerfile: Dockerfile
-    image: air-filereader:latest
-    container_name: filereader.air
+    image: air-reader:latest
+    container_name: reader.air
     ports:
       - "9103:8000"
     environment:
@@ -13,7 +13,7 @@ services:
       - ./data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/api/v1/health"]
       interval: 30s
       timeout: 5s
       retries: 3
