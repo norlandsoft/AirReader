@@ -1,4 +1,4 @@
-package com.airfilereader.service;
+package com.norlandsoft.air.reader.service;
 
 import org.opendataloader.pdf.api.Config;
 import org.opendataloader.pdf.api.OpenDataLoaderPDF;

@@ -1,4 +1,4 @@
-package com.airfilereader;
+package com.norlandsoft.air.reader;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

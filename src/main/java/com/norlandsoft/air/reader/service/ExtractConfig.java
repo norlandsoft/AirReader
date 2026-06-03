@@ -1,4 +1,4 @@
-package com.airfilereader.service;
+package com.norlandsoft.air.reader.service;
 
 /**
  * OpenDataLoader PDF 解析配置

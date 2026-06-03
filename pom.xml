@@ -11,8 +11,8 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.airfilereader</groupId>
-    <artifactId>air-filereader</artifactId>
+    <groupId>com.norlandsoft</groupId>
+    <artifactId>air-reader</artifactId>
     <version>2.0.0</version>
     <packaging>jar</packaging>
     <name>AirFileReader</name>

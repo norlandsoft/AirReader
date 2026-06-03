@@ -35,17 +35,17 @@ mvn spring-boot:run
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/health` | 健康检查 |
-| `POST` | `/v1alpha/convert/file` | 上传 PDF 文件，返回 Markdown |
+| `GET` | `/api/v1/health` | 健康检查 |
+| `POST` | `/api/v1/convert/file` | 上传 PDF 文件，返回 Markdown |
 
-### GET /health
+### GET /api/v1/health
 
 健康检查端点。
 
 **请求示例：**
 
 ```bash
-curl http://localhost:9103/health
+curl http://localhost:9103/api/v1/health
 ```
 
 **响应：**
@@ -57,9 +57,9 @@ curl http://localhost:9103/health
 }
 ```
 
-### POST /v1alpha/convert/file
+### POST /api/v1/convert/file
 
-上传 PDF 文件，返回 Markdown 内容。端点路径对齐 Docling-serve 的 `/v1alpha/convert/file`。
+上传 PDF 文件，返回 Markdown 内容。端点路径对齐 Docling-serve 的 `/api/v1/convert/file`。
 
 **请求格式：** `multipart/form-data`
 
@@ -77,22 +77,22 @@ curl http://localhost:9103/health
 
 ```bash
 # 基本用法：提取 PDF 为 Markdown
-curl -X POST http://localhost:9103/v1alpha/convert/file \
+curl -X POST http://localhost:9103/api/v1/convert/file \
   -F "files=@document.pdf"
 
 # 提取为纯文本
-curl -X POST http://localhost:9103/v1alpha/convert/file \
+curl -X POST http://localhost:9103/api/v1/convert/file \
   -F "files=@document.pdf" \
   -F "to_formats=text"
 
 # 启用 HTML 标签（表格渲染更精确）和图片引用
-curl -X POST http://localhost:9103/v1alpha/convert/file \
+curl -X POST http://localhost:9103/api/v1/convert/file \
   -F "files=@document.pdf" \
   -F "markdown_with_html=true" \
   -F "markdown_with_images=true"
 
 # 组合使用所有参数
-curl -X POST http://localhost:9103/v1alpha/convert/file \
+curl -X POST http://localhost:9103/api/v1/convert/file \
   -F "files=@report.pdf" \
   -F "to_formats=md" \
   -F "markdown_with_html=true" \
@@ -147,7 +147,7 @@ curl -X POST http://localhost:9103/v1alpha/convert/file \
 
 ```
 AirReader/
-├── src/main/java/com/airfilereader/
+├── src/main/java/com/norlandsoft/air/reader/
 │   ├── Application.java                  -- Spring Boot 启动类
 │   ├── controller/
 │   │   └── ConvertController.java        -- REST 控制器（health + convert/file）
@@ -178,7 +178,7 @@ AirReader/
 |------|---------------|---------------|
 | 语言 | Java 21 | Python |
 | 解析引擎 | OpenDataLoader | Docling (IBM) |
-| API 端点 | `/v1alpha/convert/file` | `/v1alpha/convert/file` + `/v1alpha/convert/source` |
+| API 端点 | `/api/v1/convert/file` | `/api/v1/convert/file` + `/v1alpha/convert/source` |
 | 响应结构 | `document` + `status` + `errors` | `document` + `status` + `errors` |
 | 文件参数名 | `files` | `files` |
 | 输出格式 | md, text | md, json, html, text, doctags |

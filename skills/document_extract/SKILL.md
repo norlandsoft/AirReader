@@ -12,7 +12,7 @@ source: project
 
 **主要特性：**
 - 基于 opendataloader-pdf-core 库的高质量 PDF 提取
-- Docling 风格 API（POST /v1alpha/convert/file）
+- Docling 风格 API（POST /api/v1/convert/file）
 - 输出格式可选：Markdown（默认）或纯文本
 - 支持自定义服务地址
 - 返回处理耗时和文件元信息
@@ -30,7 +30,7 @@ source: project
 | 脚本路径 | `scripts/document_extract.py`（相对于 skill 目录） |
 | 运行方式 | `python3 scripts/document_extract.py <input_file.pdf> [选项]` |
 | 输出格式 | Markdown（默认）、纯文本 |
-| API 端点 | `POST /v1alpha/convert/file` |
+| API 端点 | `POST /api/v1/convert/file` |
 
 ---
 

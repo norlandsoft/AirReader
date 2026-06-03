@@ -1,4 +1,4 @@
-package com.airfilereader.model;
+package com.norlandsoft.air.reader.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 

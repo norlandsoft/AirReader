@@ -1,10 +1,10 @@
-package com.airfilereader.controller;
+package com.norlandsoft.air.reader.controller;
 
-import com.airfilereader.model.ConvertResponse;
-import com.airfilereader.model.ConvertResponse.DocumentContent;
-import com.airfilereader.service.ExtractConfig;
-import com.airfilereader.service.ExtractResult;
-import com.airfilereader.service.OpenDataLoaderService;
+import com.norlandsoft.air.reader.model.ConvertResponse;
+import com.norlandsoft.air.reader.model.ConvertResponse.DocumentContent;
+import com.norlandsoft.air.reader.service.ExtractConfig;
+import com.norlandsoft.air.reader.service.ExtractResult;
+import com.norlandsoft.air.reader.service.OpenDataLoaderService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -20,8 +20,8 @@ import java.nio.file.Path;
  * 文档转换 REST 控制器
  *
  * 对齐 Docling-serve 的 API 风格：
- * - GET  /health                  — 健康检查
- * - POST /v1alpha/convert/file    — 上传 PDF，返回 Markdown
+ * - GET  /api/v1/health             — 健康检查
+ * - POST /api/v1/convert/file       — 上传 PDF，返回 Markdown
  *
  * 端点路径和响应结构与 Docling-serve v0.3.0 保持一致，
  * 参数精简为 OpenDataLoader 实际支持的选项。
@@ -44,7 +44,7 @@ public class ConvertController {
     /**
      * 健康检查
      */
-    @GetMapping("/health")
+    @GetMapping("/api/v1/health")
     public ResponseEntity<HealthResponse> health() {
         return ResponseEntity.ok(new HealthResponse("healthy", "2.0.0"));
     }
@@ -52,7 +52,7 @@ public class ConvertController {
     /**
      * 上传 PDF 文件，转换为 Markdown
      *
-     * 端点路径对齐 Docling-serve 的 /v1alpha/convert/file。
+     * 端点路径改为 /api/v1/convert/file。
      * 请求格式为 multipart/form-data，支持以下参数：
      * - files: PDF 文件（必填）
      * - to_formats: 输出格式，md 或 text（默认 md）
@@ -60,7 +60,7 @@ public class ConvertController {
      * - markdown_with_images: Markdown 中包含图片引用（默认 false）
      * - keep_line_breaks: 保留原始换行符（默认 false）
      */
-    @PostMapping(value = "/v1alpha/convert/file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(value = "/api/v1/convert/file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ConvertResponse> convertFile(
             @RequestParam("files") MultipartFile file,
             @RequestParam(value = "to_formats", defaultValue = "md") String toFormats,
