@@ -1,4 +1,4 @@
-"""Document extraction API routes — standardized request/response format."""
+"""Document extraction API routes — PDF-only, powered by opendataloader-pdf."""
 
 import time
 import uuid
@@ -16,53 +16,32 @@ from app.models import (
     ExtractionData,
     HealthData,
 )
-from app.open_data_loader import get_loader
+from app.open_data_loader import ExtractionError, get_loader
 
 router = APIRouter(tags=["documents"])
 
-# In-memory store for extracted documents (production would use a DB/cache)
 _doc_store: dict[str, ExtractionData] = {}
 
-ALLOWED_EXTENSIONS = sorted(
-    {".pdf", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls",
-     ".csv", ".html", ".htm", ".txt", ".md", ".jpg", ".jpeg", ".png"}
-)
-
+ALLOWED_EXTENSIONS = sorted({".pdf"})
 SUPPORTED_FORMATS_HELP = ", ".join(e.lstrip(".") for e in ALLOWED_EXTENSIONS)
-
-# 50 MB
-MAX_FILE_SIZE = 50 * 1024 * 1024
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _request_id(request: Request) -> str:
-    # Prefer an incoming X-Request-ID header; generate one otherwise
+def _req_id(request: Request) -> str:
     return request.headers.get("X-Request-ID", uuid.uuid4().hex)
 
 
-def _api_error(code: ErrorCode, message: str, detail: Optional[str] = None) -> ApiError:
+def _err(code: ErrorCode, message: str, detail: Optional[str] = None) -> ApiError:
     return ApiError(code=code, message=message, detail=detail)
 
 
-def _error_response(
-    request: Request,
-    status_code: int,
-    errors: list[ApiError],
-    elapsed: float = 0.0,
-) -> ApiResponse:
-    body = ApiResponse.error(errors=errors, request_id=_request_id(request), processing_time_ms=elapsed)
-    # We rely on FastAPI exception handling for the HTTP status code,
-    # but return the envelope as the body.
+def _fail(request: Request, status_code: int, errors: list[ApiError]) -> ApiResponse:
+    body = ApiResponse.error(errors=errors, request_id=_req_id(request))
     raise HTTPException(status_code=status_code, detail=body.model_dump())
-
-
-# ---------------------------------------------------------------------------
-# Middleware hook — attach request_id and timer to request.state
-# ---------------------------------------------------------------------------
-
 
 
 # ---------------------------------------------------------------------------
@@ -71,10 +50,7 @@ def _error_response(
 
 @router.get("/health", response_model=ApiResponse)
 async def health_check(request: Request):
-    return ApiResponse.success(
-        data=HealthData().model_dump(),
-        request_id=_request_id(request),
-    )
+    return ApiResponse.success(data=HealthData().model_dump(), request_id=_req_id(request))
 
 
 # ---------------------------------------------------------------------------
@@ -84,101 +60,66 @@ async def health_check(request: Request):
 @router.post(
     "/documents/extract",
     response_model=ApiResponse,
-    summary="Extract document content",
-    description=(
-        "Upload a document file and receive its content extracted as Markdown "
-        "or plain text. Supports PDF, Word, PowerPoint, Excel, HTML, "
-        "plain text, Markdown, and images."
-    ),
+    summary="Extract PDF content via OpenDataLoader",
+    description="Upload a PDF file and receive its content extracted as Markdown using the opendataloader-pdf library.",
 )
 async def extract_document(
     request: Request,
-    file: UploadFile = File(..., description="Document file to extract (max 50 MB)."),
+    file: UploadFile = File(..., description="PDF file to extract (max 50 MB)."),
     output_format: str = Query(
         "markdown",
         alias="output_format",
-        description="Desired output format: 'markdown' or 'text'.",
+        description="Output format: 'markdown' or 'text'.",
         pattern=r"^(markdown|text)$",
     ),
-    store: bool = Query(False, description="If true, store the result for later retrieval."),
+    store: bool = Query(False, description="Store result for later retrieval."),
 ):
     t0 = time.perf_counter()
 
-    # --- validate filename ---
     if not file.filename:
-        return _error_response(
-            request=request,
-            status_code=400,
-            errors=[_api_error(ErrorCode.INVALID_REQUEST, "No filename provided.")],
-        )
+        return _fail(request, 400, [_err(ErrorCode.INVALID_REQUEST, "No filename provided.")])
 
     suffix = Path(file.filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
-        return _error_response(
-            request=request,
-            status_code=415,
-            errors=[_api_error(
-                ErrorCode.UNSUPPORTED_FORMAT,
-                f"File type '{suffix or 'unknown'}' is not supported.",
-                detail=f"Supported formats: {SUPPORTED_FORMATS_HELP}.",
-            )],
-        )
+        return _fail(request, 415, [_err(
+            ErrorCode.UNSUPPORTED_FORMAT,
+            f"File type '{suffix or 'unknown'}' is not supported.",
+            detail=f"OpenDataLoader only supports PDF files ({SUPPORTED_FORMATS_HELP}).",
+        )])
 
-    # --- read content ---
     content = await file.read()
     if not content:
-        return _error_response(
-            request=request,
-            status_code=400,
-            errors=[_api_error(ErrorCode.EMPTY_FILE, "Uploaded file is empty.")],
-        )
+        return _fail(request, 400, [_err(ErrorCode.EMPTY_FILE, "Uploaded file is empty.")])
 
     if len(content) > MAX_FILE_SIZE:
-        return _error_response(
-            request=request,
-            status_code=413,
-            errors=[_api_error(
-                ErrorCode.FILE_TOO_LARGE,
-                f"File size {len(content)} exceeds the {MAX_FILE_SIZE // (1024 * 1024)} MB limit.",
-            )],
-        )
+        return _fail(request, 413, [_err(
+            ErrorCode.FILE_TOO_LARGE,
+            f"File size {len(content)} exceeds {MAX_FILE_SIZE // (1024 * 1024)} MB limit.",
+        )])
 
-    # --- extract ---
     loader = get_loader()
     try:
-        result = loader.extract_bytes(content=content, filename=file.filename, suffix=suffix)
+        result = loader.extract_bytes(content=content, filename=file.filename)
+    except ExtractionError as exc:
+        return _fail(request, 500, [_err(ErrorCode.EXTRACTION_FAILED, str(exc))])
     except Exception as exc:
-        return _error_response(
-            request=request,
-            status_code=500,
-            errors=[_api_error(
-                ErrorCode.EXTRACTION_FAILED,
-                "Document extraction failed.",
-                detail=str(exc),
-            )],
-        )
+        return _fail(request, 500, [_err(
+            ErrorCode.EXTRACTION_FAILED, "Document extraction failed.", detail=str(exc),
+        )])
 
-    # --- build response ---
     doc_info = DocumentInfo(
         filename=result.filename,
-        format=result.metadata.get("format", suffix.lstrip(".")),
-        type=result.metadata.get("type", "Unknown"),
+        format="pdf",
+        type="PDF",
         page_count=result.page_count,
         file_size_bytes=result.file_size_bytes,
     )
 
-    # Handle output_format: markitdown always produces markdown;
-    # if user requests plain text we strip basic md markers.
     text = result.markdown
     if output_format == "text":
         text = _strip_markdown(text)
 
-    content_info = ContentInfo(
-        format=output_format,
-        text=text,
-        length=len(text),
-    )
-
+    content_info = ContentInfo(format=output_format, text=text, length=len(text))
     data = ExtractionData(document=doc_info, content=content_info)
 
     if store:
@@ -186,47 +127,34 @@ async def extract_document(
         _doc_store[doc_id] = data
 
     elapsed = (time.perf_counter() - t0) * 1000
-    return ApiResponse.success(
-        data=data.model_dump(),
-        request_id=_request_id(request),
-        processing_time_ms=elapsed,
-    )
+    return ApiResponse.success(data=data.model_dump(), request_id=_req_id(request), processing_time_ms=elapsed)
 
 
 # ---------------------------------------------------------------------------
 # Retrieve stored document
 # ---------------------------------------------------------------------------
 
-@router.get(
-    "/documents/{doc_id}",
-    response_model=ApiResponse,
-    summary="Retrieve a stored document",
-)
+@router.get("/documents/{doc_id}", response_model=ApiResponse, summary="Retrieve a stored document")
 async def get_document(request: Request, doc_id: str):
     data = _doc_store.get(doc_id)
     if data is None:
-        return _error_response(
-            request=request,
-            status_code=404,
-            errors=[_api_error(ErrorCode.NOT_FOUND, f"Document '{doc_id}' not found.")],
-        )
-    return ApiResponse.success(data=data.model_dump(), request_id=_request_id(request))
+        return _fail(request, 404, [_err(ErrorCode.NOT_FOUND, f"Document '{doc_id}' not found.")])
+    return ApiResponse.success(data=data.model_dump(), request_id=_req_id(request))
 
 
 # ---------------------------------------------------------------------------
-# Lightweight markdown → plain-text stripper
+# Markdown → plain text stripper
 # ---------------------------------------------------------------------------
 
 import re as _re
 
 def _strip_markdown(text: str) -> str:
-    # Remove headings, bold/italic markers, link syntax, code fences, blockquotes, horizontal rules
-    text = _re.sub(r"(?m)^#{1,6}\s+", "", text)           # headings
-    text = _re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text) # bold / italic
-    text = _re.sub(r"_{1,3}([^_]+)_{1,3}", r"\1", text)   # bold / italic (underscore)
-    text = _re.sub(r"\[([^\]]*)\]\([^\)]*\)", r"\1", text) # links
-    text = _re.sub(r"`{1,3}[^`]*`{1,3}", "", text)        # inline code
-    text = _re.sub(r"(?m)^>\s?", "", text)                 # blockquotes
-    text = _re.sub(r"(?m)^[-*_]{3,}\s*$", "", text)       # horizontal rules
-    text = _re.sub(r"\n{3,}", "\n\n", text)                # collapse blank lines
+    text = _re.sub(r"(?m)^#{1,6}\s+", "", text)
+    text = _re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)
+    text = _re.sub(r"_{1,3}([^_]+)_{1,3}", r"\1", text)
+    text = _re.sub(r"\[([^\]]*)\]\([^\)]*\)", r"\1", text)
+    text = _re.sub(r"`{1,3}[^`]*`{1,3}", "", text)
+    text = _re.sub(r"(?m)^>\s?", "", text)
+    text = _re.sub(r"(?m)^[-*_]{3,}\s*$", "", text)
+    text = _re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()

@@ -17,11 +17,16 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
+    wget \
+    && wget -qO- https://packages.adoptium.net/artifactory/api/gpg/key/public | tee /etc/apt/keyrings/adoptium.asc \
+    && echo "deb [signed-by=/etc/apt/keyrings/adoptium.asc] https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" | tee /etc/apt/sources.list.d/adoptium.list \
+    && apt-get update && apt-get install -y --no-install-recommends temurin-21-jdk \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --shell /bin/bash appuser
 
-COPY --from=builder /install /usr/local
+ENV JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64
 
+COPY --from=builder /install /usr/local
 COPY app/ ./app/
 
 RUN mkdir -p /data && chown -R appuser:appuser /app /data

@@ -1,14 +1,15 @@
 services:
-  airfilereader:
+  air-filereader:
     build:
       context: .
       dockerfile: Dockerfile
-    image: airfilereader:latest
-    container_name: airfilereader
+    image: air-filereader:latest
+    container_name: filereader.air
     ports:
-      - "8000:8000"
+      - "9103:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64
     volumes:
       - ./data:/data
     restart: unless-stopped
