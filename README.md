@@ -1,74 +1,76 @@
 # AirFileReader
 
-OpenDataLoader 服务 — 从文档中提取内容并转换为 Markdown 格式，通过 REST API 对外提供文档内容读取服务。
+PDF 文档内容读取服务 — 基于 OpenDataLoader 将 PDF 转换为 Markdown，通过 Docling 风格的 REST API 对外提供服务。
 
 ## 功能
 
-- **文档提取**：支持 PDF、Word、PowerPoint、Excel、HTML、TXT、Markdown、图片等多种格式
-- **Markdown 输出**：统一将文档内容转换为 Markdown 格式返回
-- **REST API**：标准的 HTTP 接口，方便第三方系统集成
+- **PDF 提取**：使用 OpenDataLoader 进程内解析，将 PDF 内容转换为 Markdown
+- **Docling 风格 API**：对齐 Docling-serve 的端点路径和响应结构
 - **容器化部署**：提供 Dockerfile 和 docker-compose，一键构建和部署
 
 ## 快速开始
 
-### 本地运行
-
-```bash
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-访问 http://localhost:8000/docs 查看 API 文档。
-
 ### Docker 部署
 
 ```bash
-# 方式一：使用构建脚本
-bash scripts/build.sh
-
-# 方式二：使用 docker compose
+# 使用 docker compose
 docker compose up -d
 
-# 方式三：手动构建
-docker build -t airfilereader:latest .
-docker run -p 8000:8000 airfilereader:latest
+# 或手动构建
+docker build -t air-filereader:latest .
+docker run -p 9103:8000 air-filereader:latest
+```
+
+### 本地运行
+
+```bash
+mvn spring-boot:run
 ```
 
 ## API 接口
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/api/v1/health` | 健康检查 |
-| `POST` | `/api/v1/documents/extract` | 上传文档，返回 Markdown |
-| `GET` | `/api/v1/documents/{doc_id}` | 获取已存储的文档 |
+| `GET` | `/health` | 健康检查 |
+| `POST` | `/v1alpha/convert/file` | 上传 PDF，返回 Markdown |
 
 ### 示例
 
 ```bash
-# 提取 PDF 内容
-curl -X POST http://localhost:8000/api/v1/documents/extract \
-  -F "file=@document.pdf"
+# 健康检查
+curl http://localhost:9103/health
 
-# 提取并存储
-curl -X POST "http://localhost:8000/api/v1/documents/extract?store=true" \
-  -F "file=@document.pdf"
+# 提取 PDF 内容为 Markdown
+curl -X POST http://localhost:9103/v1alpha/convert/file \
+  -F "files=@document.pdf"
+
+# 提取为纯文本
+curl -X POST http://localhost:9103/v1alpha/convert/file \
+  -F "files=@document.pdf" \
+  -F "to_formats=text"
+
+# 启用 HTML 标签和图片引用
+curl -X POST http://localhost:9103/v1alpha/convert/file \
+  -F "files=@document.pdf" \
+  -F "markdown_with_html=true" \
+  -F "markdown_with_images=true"
 ```
 
 ## 项目结构
 
 ```
 AirFileReader/
-├── app/
-│   ├── main.py              # FastAPI 入口
-│   ├── open_data_loader.py  # 文档提取核心服务
-│   ├── models.py            # 数据模型
-│   └── routers/
-│       └── document.py      # API 路由
-├── scripts/
-│   └── build.sh             # 容器构建脚本
-├── tests/
-│   └── test_document.py     # 单元测试
+├── src/main/java/com/airfilereader/
+│   ├── Application.java                  -- Spring Boot 启动类
+│   ├── controller/
+│   │   └── ConvertController.java        -- REST 端点
+│   ├── model/
+│   │   └── ConvertResponse.java          -- Docling 风格响应模型
+│   └── service/
+│       ├── OpenDataLoaderService.java    -- ODL 核心解析服务
+│       ├── ExtractConfig.java            -- 解析配置
+│       └── ExtractResult.java            -- 解析结果
 ├── Dockerfile
 ├── docker-compose.yml
-└── requirements.txt
+└── pom.xml
 ```
