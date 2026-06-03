@@ -1,4 +1,4 @@
-# AirFileReader
+# AirReader
 
 PDF 文档内容读取服务 — 基于 OpenDataLoader 将 PDF 转换为 Markdown，通过 Docling 风格的 REST API 对外提供服务。
 
@@ -17,8 +17,8 @@ PDF 文档内容读取服务 — 基于 OpenDataLoader 将 PDF 转换为 Markdow
 docker compose up -d
 
 # 或手动构建
-docker build -t air-filereader:latest .
-docker run -p 9103:8000 air-filereader:latest
+docker build -t air-reader:latest .
+docker run -p 9103:8000 air-reader:latest
 ```
 
 服务启动后，外部通过 `9103` 端口访问，容器内部监听 `8000` 端口。
@@ -146,7 +146,7 @@ curl -X POST http://localhost:9103/v1alpha/convert/file \
 ## 项目结构
 
 ```
-AirFileReader/
+AirReader/
 ├── src/main/java/com/airfilereader/
 │   ├── Application.java                  -- Spring Boot 启动类
 │   ├── controller/
@@ -174,7 +174,7 @@ AirFileReader/
 
 ## 与 Docling-serve 的对比
 
-| 维度 | AirFileReader | Docling-serve |
+| 维度 | AirReader | Docling-serve |
 |------|---------------|---------------|
 | 语言 | Java 21 | Python |
 | 解析引擎 | OpenDataLoader | Docling (IBM) |
