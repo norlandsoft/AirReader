@@ -262,12 +262,13 @@ def run(args):
         print(f"❌ AirReader 服务不可达 ({base_url})", file=sys.stderr)
         return 1
 
-    # 提取文档
+    # 提取文档（默认提取图片，除非指定 --no-images）
+    extract_images = not args.no_images
     result = extract_document(
         base_url=base_url,
         file_path=args.input_file,
         output_format=args.output_format,
-        extract_images=args.extract_images,
+        extract_images=extract_images,
         timeout=args.timeout,
     )
 
@@ -290,7 +291,7 @@ def run(args):
         print_success(result, elapsed)
 
         # 图片提取：将 base64 图片保存为独立文件，markdown 中替换为本地路径
-        if args.extract_images:
+        if extract_images:
             count = extract_images_from_markdown(args.output)
             if count > 0:
                 print(f"🖼 提取图片: {count} 张 → images/", file=sys.stderr)
@@ -313,8 +314,8 @@ def parse_args(argv=None):
         epilog="示例:\n"
                "  python3 document_extract.py report.pdf -o report.md\n"
                "  python3 document_extract.py document.pdf --output-format text\n"
-               "  python3 document_extract.py slides.pdf --extract-images -o slides.md\n"
-               "  python3 document_extract.py slides.pdf --url http://192.168.1.100:9103",
+               "  python3 document_extract.py slides.pdf -o slides.md --no-images\n"
+               "  python3 document_extract.py slides.pdf --url http://192.168.1.100:9103 -o slides.md",
     )
 
     parser.add_argument("input_file", help="PDF 文件路径")
@@ -322,8 +323,8 @@ def parse_args(argv=None):
     parser.add_argument("--output", "-o", help="输出文件路径（不指定则打印到标准输出）")
     parser.add_argument("--output-format", default=DEFAULT_OUTPUT_FORMAT, choices=["md", "text"],
                         help=f"输出格式（默认 {DEFAULT_OUTPUT_FORMAT}）")
-    parser.add_argument("--extract-images", action="store_true",
-                        help="将 Markdown 中的 base64 图片提取为独立 PNG 文件（需配合 -o 使用）")
+    parser.add_argument("--no-images", action="store_true",
+                        help="禁用图片提取，仅返回纯文本 Markdown（默认提取图片）")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                         help=f"HTTP 请求超时秒数（默认 {DEFAULT_TIMEOUT}）")
 
