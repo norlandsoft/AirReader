@@ -147,10 +147,11 @@ public class OpenDataLoaderService {
                 String base64 = java.util.Base64.getEncoder().encodeToString(imageBytes);
                 String dataUri = "data:image/png;base64," + base64;
 
-                // 替换 markdown 中指向此图片的绝对路径引用
-                result = result.replace(imageFile.toString(), dataUri);
-                // 同时处理相对路径引用
-                result = result.replace(imagesDir.getFileName().toString() + "/" + imageName, dataUri);
+                // 使用正则匹配图片文件名，替换整个 ![alt](path) 结构
+                // ODL 输出的路径可能是绝对路径、符号链接路径等不同形式，
+                // 但文件名（如 imageFile1.png）是唯一的，用它作为匹配锚点
+                String regex = "!\\[([^\\]]*)\\]\\([^)]*" + java.util.regex.Pattern.quote(imageName) + "\\)";
+                result = result.replaceAll(regex, "![" + "$1](" + dataUri + ")");
 
                 log.debug("图片嵌入 base64: {} ({}KB)", imageName, imageBytes.length / 1024);
             }

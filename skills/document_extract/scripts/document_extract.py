@@ -2,12 +2,15 @@
 """document_extract — AirReader 文档内容提取 CLI 工具
 
 通过 AirReader REST API 将 PDF 文档提取为 Markdown 或纯文本。
+支持将 PDF 中的图片提取为独立 PNG 文件。
 纯 Python 标准库实现，零第三方依赖。要求 Python 3.8+。
 """
 
 import argparse
+import base64
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -20,6 +23,13 @@ from pathlib import Path
 DEFAULT_URL = "http://localhost:9103"
 DEFAULT_OUTPUT_FORMAT = "md"
 DEFAULT_TIMEOUT = 300
+
+# 图片提取相关：匹配 markdown 中的 base64 data URI 图片
+_RE_BASE64_IMG = re.compile(
+    r'!\[([^\]]*)\]\(data:image/(png|jpeg|jpg|gif|webp);base64,([A-Za-z0-9+/=\n]+)\)',
+    re.MULTILINE,
+)
+_MIME_TO_EXT = {"png": ".png", "jpeg": ".jpg", "jpg": ".jpg", "gif": ".gif", "webp": ".webp"}
 
 
 # ── HTTP ──────────────────────────────────────────────────────────────
@@ -114,13 +124,14 @@ def health_check(base_url, timeout):
 
 # ── 文档提取 ──────────────────────────────────────────────────────────
 
-def extract_document(base_url, file_path, output_format="md", timeout=DEFAULT_TIMEOUT):
+def extract_document(base_url, file_path, output_format="md", extract_images=False, timeout=DEFAULT_TIMEOUT):
     """
     通过 AirReader API 提取 PDF 文档内容。
 
     对齐 Docling 风格的 POST /api/v1/convert/file 端点：
     - files: PDF 文件（multipart form）
     - to_formats: 输出格式（md 或 text）
+    - markdown_with_images: 启用图片提取时设为 true
     """
     file_path = Path(file_path)
     if not file_path.exists():
@@ -139,6 +150,8 @@ def extract_document(base_url, file_path, output_format="md", timeout=DEFAULT_TI
     form_fields = {}
     if output_format and output_format != "md":
         form_fields["to_formats"] = output_format
+    if extract_images:
+        form_fields["markdown_with_images"] = "true"
 
     return api_request(
         base_url,
@@ -148,6 +161,48 @@ def extract_document(base_url, file_path, output_format="md", timeout=DEFAULT_TI
         form_fields=form_fields if form_fields else None,
         timeout=timeout,
     )
+
+
+# ── 图片提取 ──────────────────────────────────────────────────────────
+
+def extract_images_from_markdown(md_path):
+    """
+    将 Markdown 中 base64 嵌入的图片提取为独立文件，替换为本地链接。
+    返回提取的图片数量。
+
+    处理流程：
+    1. 读取 Markdown 文件，检测 data:image/...;base64,... 格式的图片
+    2. 对每张图片：解码 base64 → 保存为 images/image_NNN.ext
+    3. 将 Markdown 中的 data URI 替换为 images/image_NNN.ext 路径
+    """
+    with open(md_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    if "data:image/" not in content:
+        return 0
+
+    img_dir = os.path.join(os.path.dirname(md_path) or ".", "images")
+    os.makedirs(img_dir, exist_ok=True)
+    counter = 0
+
+    def _replace(m):
+        nonlocal counter
+        counter += 1
+        ext = _MIME_TO_EXT.get(m.group(2), ".png")
+        filename = f"image_{counter:03d}{ext}"
+        try:
+            img_bytes = base64.b64decode(m.group(3).replace("\n", ""))
+            with open(os.path.join(img_dir, filename), "wb") as f:
+                f.write(img_bytes)
+        except Exception as e:
+            print(f"  ⚠ 图片 {filename} 提取失败: {e}", file=sys.stderr)
+            return m.group(0)
+        return f"![{m.group(1)}](images/{filename})"
+
+    new_content = _RE_BASE64_IMG.sub(_replace, content)
+    if counter > 0:
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+    return counter
 
 
 # ── 输出格式化 ────────────────────────────────────────────────────────
@@ -212,6 +267,7 @@ def run(args):
         base_url=base_url,
         file_path=args.input_file,
         output_format=args.output_format,
+        extract_images=args.extract_images,
         timeout=args.timeout,
     )
 
@@ -232,6 +288,13 @@ def run(args):
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(content_text)
         print_success(result, elapsed)
+
+        # 图片提取：将 base64 图片保存为独立文件，markdown 中替换为本地路径
+        if args.extract_images:
+            count = extract_images_from_markdown(args.output)
+            if count > 0:
+                print(f"🖼 提取图片: {count} 张 → images/", file=sys.stderr)
+
         print(f"💾 已保存: {args.output}", file=sys.stderr)
     else:
         print_success(result, elapsed)
@@ -250,6 +313,7 @@ def parse_args(argv=None):
         epilog="示例:\n"
                "  python3 document_extract.py report.pdf -o report.md\n"
                "  python3 document_extract.py document.pdf --output-format text\n"
+               "  python3 document_extract.py slides.pdf --extract-images -o slides.md\n"
                "  python3 document_extract.py slides.pdf --url http://192.168.1.100:9103",
     )
 
@@ -258,6 +322,8 @@ def parse_args(argv=None):
     parser.add_argument("--output", "-o", help="输出文件路径（不指定则打印到标准输出）")
     parser.add_argument("--output-format", default=DEFAULT_OUTPUT_FORMAT, choices=["md", "text"],
                         help=f"输出格式（默认 {DEFAULT_OUTPUT_FORMAT}）")
+    parser.add_argument("--extract-images", action="store_true",
+                        help="将 Markdown 中的 base64 图片提取为独立 PNG 文件（需配合 -o 使用）")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                         help=f"HTTP 请求超时秒数（默认 {DEFAULT_TIMEOUT}）")
 
