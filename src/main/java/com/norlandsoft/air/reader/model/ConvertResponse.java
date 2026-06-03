@@ -1,6 +1,8 @@
 package com.norlandsoft.air.reader.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -15,10 +17,14 @@ import java.util.List;
  * - processing_time: 处理耗时（秒）
  * - errors: 错误列表（仅失败时填充）
  *
+ * 使用 @JsonNaming(SnakeCaseStrategy) 确保 Jackson 输出 snake_case，
+ * 与 Docling 响应格式和项目文档保持一致。
+ *
  * @author ChaiMingXu
  * @since 2026-06-03
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class ConvertResponse {
 
     /** 文档内容 */
@@ -74,6 +80,7 @@ public class ConvertResponse {
      * 文档内容模型
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public static class DocumentContent {
 
         /** Markdown 内容 */
