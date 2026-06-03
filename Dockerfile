@@ -1,33 +1,26 @@
-# ---- Build stage ----
-FROM python:3.12-slim AS builder
+# ---- Build stage: compile with Maven ----
+FROM maven:3.9-eclipse-temurin-21 AS builder
 
 WORKDIR /build
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ make libffi-dev \
-    && rm -rf /var/lib/apt/lists/*
+COPY pom.xml .
+COPY lib/ lib/
+RUN mvn dependency:go-offline -q
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+COPY src/ src/
+RUN mvn clean package -DskipTests -q
 
-# ---- Runtime stage ----
-FROM python:3.12-slim
+# ---- Runtime stage: JDK only ----
+FROM eclipse-temurin:21-jdk-alpine
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgomp1 \
-    wget \
-    && wget -qO- https://packages.adoptium.net/artifactory/api/gpg/key/public | tee /etc/apt/keyrings/adoptium.asc \
-    && echo "deb [signed-by=/etc/apt/keyrings/adoptium.asc] https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" | tee /etc/apt/sources.list.d/adoptium.list \
-    && apt-get update && apt-get install -y --no-install-recommends temurin-21-jdk \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd --create-home --shell /bin/bash appuser
+RUN addgroup -S appuser && adduser -S appuser -G appuser
 
-ENV JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64
+COPY --from=builder /build/target/air-filereader-1.0.0.jar ./app.jar
 
-COPY --from=builder /install /usr/local
-COPY app/ ./app/
+# Copy the ODL JAR for ProcessBuilder
+COPY lib/opendataloader-pdf-cli.jar ./lib/
 
 RUN mkdir -p /data && chown -R appuser:appuser /app /data
 
@@ -36,6 +29,6 @@ USER appuser
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')" || exit 1
+    CMD wget -qO- http://localhost:8000/api/v1/health || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["java", "-jar", "app.jar"]

@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 IMAGE_NAME="${IMAGE_NAME:-air-filereader}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 
-echo "=== Building AirFileReader container (opendataloader-pdf + Java 21) ==="
+echo "=== Building AirFileReader container (Java 21 + opendataloader-pdf-cli) ==="
 echo "Image: ${IMAGE_NAME}:${IMAGE_TAG}"
 echo ""
 

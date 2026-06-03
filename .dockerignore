@@ -1,6 +1,5 @@
-__pycache__
 *.pyc
-*.pyo
+__pycache__
 .env
 .venv
 venv
@@ -8,7 +7,10 @@ venv
 .gitignore
 *.md
 LICENSE
-tests
-scripts
+skills
 data
 .DS_Store
+target
+.idea
+.pytest_cache
+tests
