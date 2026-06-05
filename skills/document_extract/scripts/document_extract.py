@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""document_extract — AirReader 文档内容提取 CLI 工具
+"""document_extract — AirReader PDF 文档内容提取 CLI 工具
 
-通过 AirReader REST API 将 PDF 文档提取为 Markdown 或纯文本。
-支持将 PDF 中的图片提取为独立 PNG 文件。
+通过 AirReader REST API 将 PDF 文档提取为 Markdown。
+图片以原始分辨率保存为独立 PNG 文件。
+服务端返回 zip 包（Markdown + 图片 + 元数据），客户端解包即可。
 纯 Python 标准库实现，零第三方依赖。要求 Python 3.8+。
 """
 
 import argparse
-import base64
+import io
 import json
 import os
 import re
@@ -16,20 +17,13 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import zipfile
 from pathlib import Path
 
 # ── 常量 ──────────────────────────────────────────────────────────────
 
 DEFAULT_URL = "http://localhost:9103"
-DEFAULT_OUTPUT_FORMAT = "md"
 DEFAULT_TIMEOUT = 300
-
-# 图片提取相关：匹配 markdown 中的 base64 data URI 图片
-_RE_BASE64_IMG = re.compile(
-    r'!\[([^\]]*)\]\(data:image/(png|jpeg|jpg|gif|webp);base64,([A-Za-z0-9+/=\n]+)\)',
-    re.MULTILINE,
-)
-_MIME_TO_EXT = {"png": ".png", "jpeg": ".jpg", "jpg": ".jpg", "gif": ".gif", "webp": ".webp"}
 
 
 # ── HTTP ──────────────────────────────────────────────────────────────
@@ -54,10 +48,11 @@ def _build_opener():
 
 def api_request(base_url, endpoint, method="GET", files=None, form_fields=None, timeout=DEFAULT_TIMEOUT):
     """
-    向 AirReader API 发送请求，返回解析后的 JSON。
+    向 AirReader API 发送请求。
 
-    files: [(filename, bytes, mime)] 文件列表
-    form_fields: {key: value} 额外表单字段
+    返回值：
+    - 成功：{"status": "success", "_is_zip": True, "_zip_data": bytes}
+    - 错误：{"status": "failure", "errors": [...]}
     """
     url = f"{base_url.rstrip('/')}/api/v1/{endpoint.lstrip('/')}"
 
@@ -65,11 +60,9 @@ def api_request(base_url, endpoint, method="GET", files=None, form_fields=None, 
     headers = {}
 
     if files:
-        # 构建 multipart/form-data 请求体
         boundary = f"----AirReader{uuid.uuid4().hex}"
         parts = []
 
-        # 添加表单字段
         if form_fields:
             for k, v in form_fields.items():
                 parts.append(
@@ -78,7 +71,6 @@ def api_request(base_url, endpoint, method="GET", files=None, form_fields=None, 
                     f"{v}\r\n".encode()
                 )
 
-        # 添加文件（参数名 files，对齐 Docling 风格）
         for fname, fbytes, fmime in files:
             parts.append(
                 f"--{boundary}\r\n"
@@ -99,8 +91,20 @@ def api_request(base_url, endpoint, method="GET", files=None, form_fields=None, 
 
     try:
         with opener.open(req, timeout=timeout) as resp:
-            resp_body = resp.read().decode("utf-8", errors="replace")
-            return json.loads(resp_body)
+            content_type = resp.headers.get("Content-Type", "")
+            resp_body = resp.read()
+
+            # 成功：服务端返回 zip
+            if "application/zip" in content_type:
+                return {
+                    "status": "success",
+                    "_is_zip": True,
+                    "_zip_data": resp_body,
+                }
+
+            # 其他情况（不应出现）：解析 JSON
+            return json.loads(resp_body.decode("utf-8", errors="replace"))
+
     except urllib.error.HTTPError as e:
         resp_body = e.read().decode("utf-8", errors="replace")
         try:
@@ -124,14 +128,11 @@ def health_check(base_url, timeout):
 
 # ── 文档提取 ──────────────────────────────────────────────────────────
 
-def extract_document(base_url, file_path, output_format="md", extract_images=False, timeout=DEFAULT_TIMEOUT):
+def extract_document(base_url, file_path, timeout=DEFAULT_TIMEOUT):
     """
     通过 AirReader API 提取 PDF 文档内容。
 
-    对齐 Docling 风格的 POST /api/v1/convert/file 端点：
-    - files: PDF 文件（multipart form）
-    - to_formats: 输出格式（md 或 text）
-    - markdown_with_images: 启用图片提取时设为 true
+    发送 PDF 文件，接收 zip 包（Markdown + 图片 + meta.json）。
     """
     file_path = Path(file_path)
     if not file_path.exists():
@@ -147,62 +148,114 @@ def extract_document(base_url, file_path, output_format="md", extract_images=Fal
     if not file_bytes:
         return {"status": "failure", "errors": [{"code": "EMPTY_FILE", "message": "文件为空"}]}
 
-    form_fields = {}
-    if output_format and output_format != "md":
-        form_fields["to_formats"] = output_format
-    if extract_images:
-        form_fields["markdown_with_images"] = "true"
-
-    return api_request(
+    result = api_request(
         base_url,
         "convert/file",
         method="POST",
         files=[(file_path.name, file_bytes, "application/pdf")],
-        form_fields=form_fields if form_fields else None,
         timeout=timeout,
     )
 
+    if isinstance(result, dict) and result.get("_is_zip"):
+        result["filename"] = file_path.name
 
-# ── 图片提取 ──────────────────────────────────────────────────────────
+    return result
 
-def extract_images_from_markdown(md_path):
+
+# ── Zip 解包 ──────────────────────────────────────────────────────────
+
+def unpack_zip(zip_data, output_path):
     """
-    将 Markdown 中 base64 嵌入的图片提取为独立文件，替换为本地链接。
-    返回提取的图片数量。
+    将服务端返回的 zip 包解压到输出文件所在目录，
+    并将文件名统一重命名为用户指定的输出文件名。
 
-    处理流程：
-    1. 读取 Markdown 文件，检测 data:image/...;base64,... 格式的图片
-    2. 对每张图片：解码 base64 → 保存为 images/image_NNN.ext
-    3. 将 Markdown 中的 data URI 替换为 images/image_NNN.ext 路径
+    例如 zip 中为 upload_xxx.md + upload_xxx_images/，
+    重命名为 Project.md + Project_images/，使 Markdown 中的相对图片引用保持有效。
+
+    返回 (meta_dict, image_count, images_dir_path)
     """
-    with open(md_path, "r", encoding="utf-8") as f:
-        content = f.read()
-    if "data:image/" not in content:
-        return 0
+    output_dir = os.path.dirname(os.path.abspath(output_path))
+    os.makedirs(output_dir, exist_ok=True)
+    output_base = os.path.splitext(os.path.basename(output_path))[0]
 
-    img_dir = os.path.join(os.path.dirname(md_path) or ".", "images")
-    os.makedirs(img_dir, exist_ok=True)
-    counter = 0
+    meta = None
+    md_source = None
+    images_dir_source = None
+    image_count = 0
 
-    def _replace(m):
-        nonlocal counter
-        counter += 1
-        ext = _MIME_TO_EXT.get(m.group(2), ".png")
-        filename = f"image_{counter:03d}{ext}"
-        try:
-            img_bytes = base64.b64decode(m.group(3).replace("\n", ""))
-            with open(os.path.join(img_dir, filename), "wb") as f:
-                f.write(img_bytes)
-        except Exception as e:
-            print(f"  ⚠ 图片 {filename} 提取失败: {e}", file=sys.stderr)
-            return m.group(0)
-        return f"![{m.group(1)}](images/{filename})"
+    with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+        for name in zf.namelist():
+            if name.endswith("/"):
+                # 记录图片目录路径
+                if name.rstrip("/").endswith("_images"):
+                    images_dir_source = os.path.join(output_dir, name.rstrip("/"))
+                continue
 
-    new_content = _RE_BASE64_IMG.sub(_replace, content)
-    if counter > 0:
-        with open(md_path, "w", encoding="utf-8") as f:
-            f.write(new_content)
-    return counter
+            target = os.path.join(output_dir, name)
+
+            # 安全检查：防止路径穿越
+            abs_target = os.path.abspath(target)
+            if not abs_target.startswith(output_dir + os.sep) and abs_target != output_dir:
+                continue
+
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            data = zf.read(name)
+            with open(target, "wb") as dst:
+                dst.write(data)
+
+            if name == "meta.json":
+                meta = json.loads(data)
+            elif name.endswith(".md"):
+                md_source = target
+            elif "_images/" in name:
+                image_count += 1
+                if images_dir_source is None:
+                    # 从图片文件路径推导目录
+                    idx = name.find("_images/")
+                    if idx > 0:
+                        images_dir_source = os.path.join(output_dir, name[:idx + len("_images")])
+
+        # 统一重命名：upload_xxx.md → Project.md, upload_xxx_images/ → Project_images/
+        old_images_dir_name = None
+        if md_source:
+            md_base = os.path.splitext(os.path.basename(md_source))[0]
+            if md_base != output_base:
+                # 重命名 md 文件
+                if os.path.exists(output_path):
+                    os.remove(output_path)
+                os.rename(md_source, output_path)
+
+                # 重命名图片目录
+                old_images_dir = os.path.join(os.path.dirname(md_source), md_base + "_images")
+                new_images_dir = os.path.join(output_dir, output_base + "_images")
+                if os.path.isdir(old_images_dir) and not os.path.exists(new_images_dir):
+                    os.rename(old_images_dir, new_images_dir)
+                    images_dir_source = new_images_dir
+                    old_images_dir_name = md_base + "_images"
+
+    # 修正 Markdown 中的图片路径
+    # ODL 生成的图片引用可能是绝对路径（如 /tmp/odl-xxx/basename_images/file.png），
+    # 替换为相对路径（如 Project_images/file.png）
+    if image_count > 0 and os.path.exists(output_path):
+        new_images_rel = output_base + "_images"
+        with open(output_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # 匹配 Markdown 图片语法中的路径，替换为相对路径
+        # 形如 ![alt](any/path/xxx_images/imageFile1.png) → ![alt](Project_images/imageFile1.png)
+        def _fix_path(m):
+            alt = m.group(1)
+            path = m.group(2)
+            filename = os.path.basename(path)
+            return f"![{alt}]({new_images_rel}/{filename})"
+
+        new_content = re.sub(r'!\[([^\]]*)\]\(([^)]*_images/[^)]*)\)', _fix_path, content)
+
+        if new_content != content:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+
+    return meta, image_count, images_dir_source
 
 
 # ── 输出格式化 ────────────────────────────────────────────────────────
@@ -217,7 +270,7 @@ def format_size(size_bytes):
 
 
 def format_error(result, elapsed=0):
-    """格式化 API 错误输出到 stderr，返回退出码"""
+    """格式化错误输出到 stderr，返回退出码"""
     errors = result.get("errors", [])
     if not errors:
         print("❌ 未知错误", file=sys.stderr)
@@ -233,20 +286,17 @@ def format_error(result, elapsed=0):
     return 1
 
 
-def print_success(result, elapsed):
-    """将提取摘要输出到 stderr"""
-    doc = result.get("document", {})
-
+def print_success(meta, image_count, filename, elapsed):
+    """提取摘要输出到 stderr"""
     print(f"✅ 提取成功", file=sys.stderr)
-    print(f"📄 文件: {doc.get('filename', '?')}", file=sys.stderr)
-    print(f"📐 大小: {format_size(doc.get('file_size_bytes', 0))}", file=sys.stderr)
-
-    md_len = len(doc.get("md_content", "")) if doc.get("md_content") else 0
-    text_len = len(doc.get("text_content", "")) if doc.get("text_content") else 0
-    print(f"📝 内容长度: {max(md_len, text_len)} 字符", file=sys.stderr)
-
-    proc_time = result.get("processing_time", 0)
-    print(f"⏱ 服务处理: {proc_time:.2f}s  |  总耗时: {elapsed:.1f}s", file=sys.stderr)
+    print(f"📄 文件: {meta.get('filename', filename) if meta else filename}", file=sys.stderr)
+    if meta:
+        print(f"📐 大小: {format_size(meta.get('file_size_bytes', 0))}", file=sys.stderr)
+    if image_count > 0:
+        print(f"🖼 提取图片: {image_count} 张", file=sys.stderr)
+    if meta:
+        proc_time = meta.get("processing_time", 0)
+        print(f"⏱ 服务处理: {proc_time:.2f}s  |  总耗时: {elapsed:.1f}s", file=sys.stderr)
     print("─" * 50, file=sys.stderr)
 
 
@@ -262,13 +312,9 @@ def run(args):
         print(f"❌ AirReader 服务不可达 ({base_url})", file=sys.stderr)
         return 1
 
-    # 提取文档（默认提取图片，除非指定 --no-images）
-    extract_images = not args.no_images
     result = extract_document(
         base_url=base_url,
         file_path=args.input_file,
-        output_format=args.output_format,
-        extract_images=extract_images,
         timeout=args.timeout,
     )
 
@@ -277,29 +323,13 @@ def run(args):
     if result.get("status") != "success":
         return format_error(result, elapsed)
 
-    # 获取内容：优先 md_content，如果请求了 text 则取 text_content
-    doc = result.get("document", {})
-    if args.output_format == "text" and doc.get("text_content"):
-        content_text = doc["text_content"]
-    else:
-        content_text = doc.get("md_content", "")
+    # 解包 zip 到输出目录
+    meta, image_count, images_dir = unpack_zip(result["_zip_data"], args.output)
+    print_success(meta, image_count, result.get("filename", "?"), elapsed)
+    print(f"💾 已保存: {args.output}", file=sys.stderr)
 
-    # 输出
-    if args.output:
-        with open(args.output, "w", encoding="utf-8") as f:
-            f.write(content_text)
-        print_success(result, elapsed)
-
-        # 图片提取：将 base64 图片保存为独立文件，markdown 中替换为本地路径
-        if extract_images:
-            count = extract_images_from_markdown(args.output)
-            if count > 0:
-                print(f"🖼 提取图片: {count} 张 → images/", file=sys.stderr)
-
-        print(f"💾 已保存: {args.output}", file=sys.stderr)
-    else:
-        print_success(result, elapsed)
-        sys.stdout.write(content_text)
+    if image_count > 0 and images_dir:
+        print(f"📁 图片目录: {images_dir}", file=sys.stderr)
 
     return 0
 
@@ -313,18 +343,12 @@ def parse_args(argv=None):
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="示例:\n"
                "  python3 document_extract.py report.pdf -o report.md\n"
-               "  python3 document_extract.py document.pdf --output-format text\n"
-               "  python3 document_extract.py slides.pdf -o slides.md --no-images\n"
                "  python3 document_extract.py slides.pdf --url http://192.168.1.100:9103 -o slides.md",
     )
 
     parser.add_argument("input_file", help="PDF 文件路径")
     parser.add_argument("--url", default=DEFAULT_URL, help=f"AirReader 服务地址（默认 {DEFAULT_URL}）")
-    parser.add_argument("--output", "-o", help="输出文件路径（不指定则打印到标准输出）")
-    parser.add_argument("--output-format", default=DEFAULT_OUTPUT_FORMAT, choices=["md", "text"],
-                        help=f"输出格式（默认 {DEFAULT_OUTPUT_FORMAT}）")
-    parser.add_argument("--no-images", action="store_true",
-                        help="禁用图片提取，仅返回纯文本 Markdown（默认提取图片）")
+    parser.add_argument("--output", "-o", required=True, help="输出文件路径")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                         help=f"HTTP 请求超时秒数（默认 {DEFAULT_TIMEOUT}）")
 

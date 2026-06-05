@@ -5,20 +5,12 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
- * Docling 风格的文档转换响应体
+ * 错误响应体（仅用于 HTTP 错误场景）
  *
- * 响应结构对齐 Docling-serve 的 JSON 格式：
- * - document: 文档内容（md_content, filename, page_count, file_size_bytes）
- * - status: success | failure
- * - processing_time: 处理耗时（秒）
- * - errors: 错误列表（仅失败时填充）
- *
- * 使用 @JsonNaming(SnakeCaseStrategy) 确保 Jackson 输出 snake_case，
- * 与 Docling 响应格式和项目文档保持一致。
+ * 成功响应直接返回 application/zip 流，不经过此模型。
  *
  * @author ChaiMingXu
  * @since 2026-06-03
@@ -27,20 +19,9 @@ import java.util.List;
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class ConvertResponse {
 
-    /** 文档内容 */
-    private DocumentContent document;
-
-    /** 状态：success 或 failure */
     private String status;
-
-    /** 处理耗时（秒） */
     private double processingTime;
-
-    /** 错误列表 */
     private List<ConvertError> errors;
-
-    public DocumentContent getDocument() { return document; }
-    public void setDocument(DocumentContent document) { this.document = document; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
@@ -50,18 +31,6 @@ public class ConvertResponse {
 
     public List<ConvertError> getErrors() { return errors; }
     public void setErrors(List<ConvertError> errors) { this.errors = errors; }
-
-    /**
-     * 构建成功响应
-     */
-    public static ConvertResponse success(DocumentContent document, double processingTimeSec) {
-        ConvertResponse resp = new ConvertResponse();
-        resp.setStatus("success");
-        resp.setDocument(document);
-        resp.setProcessingTime(processingTimeSec);
-        resp.setErrors(Collections.emptyList());
-        return resp;
-    }
 
     /**
      * 构建失败响应
@@ -77,53 +46,12 @@ public class ConvertResponse {
     }
 
     /**
-     * 文档内容模型
-     */
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-    public static class DocumentContent {
-
-        /** Markdown 内容 */
-        private String mdContent;
-
-        /** 纯文本内容（仅 to_formats=text 时填充） */
-        private String textContent;
-
-        /** 原始文件名 */
-        private String filename;
-
-        /** 页数（ODL 当前不提供此值，默认 0） */
-        private int pageCount;
-
-        /** 文件大小（字节） */
-        private long fileSizeBytes;
-
-        public String getMdContent() { return mdContent; }
-        public void setMdContent(String mdContent) { this.mdContent = mdContent; }
-
-        public String getTextContent() { return textContent; }
-        public void setTextContent(String textContent) { this.textContent = textContent; }
-
-        public String getFilename() { return filename; }
-        public void setFilename(String filename) { this.filename = filename; }
-
-        public int getPageCount() { return pageCount; }
-        public void setPageCount(int pageCount) { this.pageCount = pageCount; }
-
-        public long getFileSizeBytes() { return fileSizeBytes; }
-        public void setFileSizeBytes(long fileSizeBytes) { this.fileSizeBytes = fileSizeBytes; }
-    }
-
-    /**
      * 转换错误
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ConvertError {
 
-        /** 错误码 */
         private String code;
-
-        /** 错误描述 */
         private String message;
 
         public ConvertError() {}

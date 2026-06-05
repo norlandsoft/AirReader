@@ -8,12 +8,18 @@ services:
     ports:
       - "9103:8000"
     environment:
-      - JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64
+      - JAVA_OPTS=-Xmx4g -Xms512m -XX:+UseSerialGC
     volumes:
-      - ./data:/data
-    restart: unless-stopped
+      - air-reader-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 2g
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8000/api/v1/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+
+volumes:
+  air-reader-data:

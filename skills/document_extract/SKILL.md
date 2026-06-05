@@ -1,6 +1,6 @@
 ---
 name: document_extract
-description: 将 PDF 文件通过 AirReader 的 OpenDataLoader 服务提取为 Markdown 或纯文本。默认提取图片为独立 PNG 文件。基于 opendataloader-pdf-core 库，Docling 风格 API。
+description: 将 PDF 文件通过 AirReader 的 OpenDataLoader 服务提取为 Markdown，图片以原始分辨率保存为独立 PNG 文件。基于 opendataloader-pdf-core 库。
 source: project
 ---
 
@@ -8,65 +8,35 @@ source: project
 
 ## 概述
 
-调用 AirReader 的 OpenDataLoader 服务，将 PDF 文档内容提取为 Markdown 或纯文本格式。底层使用 opendataloader-pdf-core 库进行进程内 JVM 解析。默认将 PDF 中的图片提取为独立 PNG 文件保存到本地。
+调用 AirReader 的 OpenDataLoader 服务，将 PDF 文档内容提取为 Markdown 格式。底层使用 opendataloader-pdf-core 库进行进程内 JVM 解析。
 
-**主要特性：**
-- 基于 opendataloader-pdf-core 库的高质量 PDF 提取
-- Docling 风格 API（POST /api/v1/convert/file）
-- 输出格式可选：Markdown（默认）或纯文本
-- 默认提取图片：PDF 中的图片自动保存为独立 PNG 文件，Markdown 中保留本地路径引用
-- 支持自定义服务地址
-- 返回处理耗时和文件元信息
+- PDF 中的图片以原始分辨率保存为独立 PNG 文件（不压缩、不 base64 嵌入）
+- 服务端将 Markdown + 图片打包为 zip 流式返回
+- 客户端解包即可使用，图片相对路径天然有效
 
 **前置条件：** AirReader 服务运行中（默认 `http://localhost:9103`）。
 
-**支持的格式：** 仅 PDF 文件。
+**支持的格式：** 仅 PDF 文件（≤ 50 MB）。
 
 ---
 
-## 快速参考
+## 参数
 
-| 项目 | 值 |
-|------|-----|
-| 脚本路径 | `scripts/document_extract.py`（相对于 skill 目录） |
-| 运行方式 | `python3 scripts/document_extract.py <input_file.pdf> [选项]` |
-| 输出格式 | Markdown（默认）、纯文本 |
-| API 端点 | `POST /api/v1/convert/file` |
-
----
-
-## 参数说明
-
-### 必选参数
-
-| 参数 | 说明 |
-|------|------|
-| `input_file` | PDF 文件路径 |
-
-### 可选参数
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--url` | `http://localhost:9103` | AirReader 服务地址 |
-| `--output, -o` | 标准输出 | 输出文件路径 |
-| `--output-format` | `md` | 输出格式：`md`（Markdown）或 `text`（纯文本） |
-| `--no-images` | 关闭 | 禁用图片提取，仅返回纯文本 Markdown |
-| `--timeout` | `300` | HTTP 请求超时秒数 |
+| 参数 | 必选 | 默认值 | 说明 |
+|------|------|--------|------|
+| `input_file` | 是 | — | PDF 文件路径 |
+| `--output, -o` | 是 | — | 输出 Markdown 文件路径 |
+| `--url` | 否 | `http://localhost:9103` | AirReader 服务地址 |
+| `--timeout` | 否 | `300` | HTTP 请求超时秒数 |
 
 ---
 
 ## 使用示例
 
 ```bash
-# 提取 PDF 为 Markdown（默认提取图片）
+# 提取 PDF 为 Markdown + 图片
 python3 scripts/document_extract.py report.pdf -o report.md
-# 输出: report.md + images/image_001.png, images/image_002.png, ...
-
-# 提取 PDF，不提取图片
-python3 scripts/document_extract.py report.pdf -o report.md --no-images
-
-# 提取为纯文本（纯文本模式自动不含图片）
-python3 scripts/document_extract.py document.pdf --output-format text -o document.txt
+# 输出: report.md + report_images/image_001.png, report_images/image_002.png, ...
 
 # 指定服务地址
 python3 scripts/document_extract.py slides.pdf --url http://192.168.1.100:9103 -o slides.md
@@ -74,23 +44,26 @@ python3 scripts/document_extract.py slides.pdf --url http://192.168.1.100:9103 -
 
 ---
 
-## 图片提取流程
+## 工作流程
 
-默认情况下（未指定 `--no-images`），图片提取流程如下：
+1. 脚本将 PDF 文件上传到 AirReader 服务 `POST /api/v1/convert/file`
+2. 服务端使用 OpenDataLoader 提取 PDF 内容为 Markdown，同时提取图片为原始 PNG 文件
+3. 服务端将 `Markdown 文件` + `图片目录` + `meta.json` 流式打包为 zip 返回
+4. 脚本接收 zip 包，解压到输出文件所在目录
 
-1. 脚本向 AirReader 服务发送请求时附加 `markdown_with_images=true` 参数
-2. 服务端使用 OpenDataLoader 提取 PDF 中的图片，转为 base64 嵌入 Markdown
-3. 脚本收到 Markdown 后，检测其中的 `data:image/png;base64,...` 数据
-4. 将每张图片解码保存到 `images/` 子目录（如 `images/image_001.png`）
-5. 将 Markdown 中的 base64 数据替换为本地文件路径（如 `![alt](images/image_001.png)`）
-
-图片提取仅对 `--output-format md`（默认）有效，且必须配合 `-o` 指定输出文件。当不需要图片时，使用 `--no-images` 参数跳过图片提取。
+**输出目录结构：**
+```
+report.md                    # Markdown（图片引用为 report_images/image_001.png）
+report_images/               # 原始 PNG 图片
+    image_001.png
+    image_002.png
+```
 
 ---
 
-## 注意事项
+## API 响应
 
-- 仅支持 PDF 格式文件
-- 文件大小限制 50 MB
-- 服务端自动记录处理耗时（秒级）
-- 图片提取功能需要 AirReader 服务端支持（启用 markdown_with_images 参数）
+| 场景 | HTTP 状态 | Content-Type | 说明 |
+|------|----------|--------------|------|
+| 成功 | 200 | `application/zip` | 流式 zip 包 |
+| 错误 | 4xx / 5xx | `application/json` | `{"status":"failure","errors":[...]}` |
