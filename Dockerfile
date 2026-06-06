@@ -1,10 +1,13 @@
-FROM air-jdk:21
+FROM python:3.11-slim
 
 WORKDIR /app
 
 RUN groupadd --system appuser && useradd --system --gid appuser appuser
 
-COPY target/air-reader-2.0.0.jar ./app.jar
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app/ ./app/
 
 RUN mkdir -p /data && chown -R appuser:appuser /app /data
 
@@ -13,6 +16,6 @@ USER appuser
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD wget -qO- http://localhost:8000/api/v1/health || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')" || exit 1
 
-ENTRYPOINT ["sh", "-c", "exec java ${JAVA_OPTS:--XX:MaxRAMPercentage=80.0 -XX:+UseSerialGC} -jar app.jar"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

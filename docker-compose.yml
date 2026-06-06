@@ -3,12 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: air-reader:latest
+    image: air-reader:3.0.0
     container_name: reader.air
     ports:
       - "9103:8000"
-    environment:
-      - JAVA_OPTS=-Xmx4g -Xms512m -XX:+UseSerialGC
     volumes:
       - air-reader-data:/data
     deploy:
@@ -16,7 +14,7 @@ services:
         limits:
           memory: 2g
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8000/api/v1/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
