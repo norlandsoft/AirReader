@@ -5,7 +5,6 @@ Extracts text, images (original resolution), and tables from PDF files,
 assembling them into Markdown format.
 """
 import logging
-import tempfile
 from pathlib import Path
 from typing import Dict, Any
 
@@ -13,8 +12,8 @@ import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
-HEADER_Y_THRESHOLD = 0.85
-FOOTER_Y_THRESHOLD = 0.10
+FOOTER_Y_THRESHOLD = 0.85  # Images with y_pct > 0.85 are in footer area (bottom of page)
+HEADER_Y_THRESHOLD = 0.10  # Images with y_pct < 0.10 are in header area (top of page)
 
 
 def extract_pdf(pdf_path: Path, output_dir: Path) -> Dict[str, Any]:
@@ -100,6 +99,7 @@ def _process_page(
     extracted_xrefs: set,
 ) -> str:
     """Process a single page: extract text and images, return markdown."""
+    logger.debug("Processing page %d", page_num)
     # Text
     text = page.get_text("text").strip()
 
@@ -118,7 +118,7 @@ def _process_page(
         # Header/footer filter
         if xref in img_positions:
             y_pct = img_positions[xref] / page_height
-            if y_pct > HEADER_Y_THRESHOLD or y_pct < FOOTER_Y_THRESHOLD:
+            if y_pct < HEADER_Y_THRESHOLD or y_pct > FOOTER_Y_THRESHOLD:
                 continue
 
         # Extract original image
