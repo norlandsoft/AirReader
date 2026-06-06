@@ -64,7 +64,7 @@ pytest tests/ -v
 | Web Framework | FastAPI + uvicorn |
 | PDF Extraction | PyMuPDF (fitz) |
 | Table Extraction | pdfplumber |
-| Runtime | Python 3.11+ |
+| Runtime | Python 3.12+ |
 
 ## License
 

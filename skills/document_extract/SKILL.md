@@ -1,22 +1,21 @@
 ---
 name: document_extract
-description: 将 PDF 文件通过 AirParser 服务提取为 Markdown，图片以原始分辨率保存。基于 PyMuPDF + pdfplumber。
+description: Use when converting PDF files to Markdown with images via the AirParser service.
 source: project
 ---
 
-# document_extract — PDF 内容提取
+# document_extract — PDF 文档提取
 
-## 概述
+将 PDF 文档提取为 Markdown + 原始分辨率图片。
 
-调用 AirParser 服务，将 PDF 文档内容提取为 Markdown 格式。底层使用 PyMuPDF 提取文字和原始分辨率图片，pdfplumber 提取表格。
-
-- PDF 中的图片以原始分辨率保存（不压缩、不 base64 嵌入）
-- 服务端将 Markdown + 图片打包为 zip 流式返回
-- 客户端解包即可使用，图片相对路径天然有效
+- 图片按原文位置穿插，非末尾堆叠
+- 表格转为 Markdown 表格格式
+- 自动过滤页眉页脚（文字和图片）
+- 图片 smask 合成到白色背景，无黑色透明区域
 
 **前置条件：** AirParser 服务运行中（默认 `http://localhost:9103`）。
 
-**支持的格式：** 仅 PDF 文件（≤ 50 MB）。
+**支持格式：** PDF（≤ 50 MB）。
 
 ---
 
@@ -27,43 +26,81 @@ source: project
 | `input_file` | 是 | — | PDF 文件路径 |
 | `--output, -o` | 是 | — | 输出 Markdown 文件路径 |
 | `--url` | 否 | `http://localhost:9103` | AirParser 服务地址 |
-| `--timeout` | 否 | `300` | HTTP 请求超时秒数 |
+| `--timeout` | 否 | `300` | HTTP 请求超时（秒） |
 
 ---
 
 ## 使用示例
 
 ```bash
-# 提取 PDF 为 Markdown + 图片
+# 基本用法
 python3 scripts/document_extract.py report.pdf -o report.md
-# 输出: report.md + report_images/img_0.png, report_images/img_1.jpeg, ...
+# 输出: report.md + report_images/
 
 # 指定服务地址
-python3 scripts/document_extract.py slides.pdf --url http://192.168.1.100:9103 -o slides.md
+python3 scripts/document_extract.py slides.pdf \
+  --url http://192.168.1.100:9103 -o slides.md
+```
+
+**输出结构：**
+```
+report.md                    # Markdown
+report_images/               # 图片
+    img_0.jpeg
+    img_1.png
 ```
 
 ---
 
-## 工作流程
+## API 参考
 
-1. 脚本将 PDF 文件上传到 AirParser 服务 `POST /api/v1/convert/file`
-2. 服务端使用 PyMuPDF 提取文字和原始分辨率图片，pdfplumber 提取表格
-3. 服务端将 `Markdown 文件` + `图片目录` + `meta.json` 流式打包为 zip 返回
-4. 脚本接收 zip 包，解压到输出文件所在目录
+### Health Check
 
-**输出目录结构：**
 ```
-report.md                    # Markdown（图片引用为 report_images/img_0.png）
-report_images/               # 原始分辨率图片
-    img_0.png
-    img_1.jpeg
+GET /api/v1/health
+→ {"status": "healthy", "version": "3.0.0"}
 ```
 
----
+### 转换
 
-## API 响应
+```
+POST /api/v1/convert/file
+Content-Type: multipart/form-data
+字段名: files
+→ application/zip 流
+```
 
-| 场景 | HTTP 状态 | Content-Type | 说明 |
-|------|----------|--------------|------|
-| 成功 | 200 | `application/zip` | 流式 zip 包 |
-| 错误 | 200 | `application/zip` | zip 内 meta.json 含 failure 状态 |
+**所有响应（成功和错误）均为 `application/zip`，HTTP 200。** 错误信息在 zip 内 `meta.json` 中。
+
+### meta.json 格式
+
+**成功：**
+```json
+{
+  "filename": "report.pdf",
+  "file_size_bytes": 1048576,
+  "processing_time": 1.23,
+  "status": "success"
+}
+```
+
+**失败：**
+```json
+{
+  "filename": "report.pdf",
+  "file_size_bytes": 0,
+  "processing_time": 0.01,
+  "status": "failure",
+  "errors": [{"code": "ERROR_CODE", "message": "描述"}]
+}
+```
+
+### 错误码
+
+| 错误码 | 触发条件 |
+|--------|----------|
+| `INVALID_REQUEST` | 缺少文件名或请求格式错误 |
+| `UNSUPPORTED_FORMAT` | 非 PDF 文件 |
+| `EMPTY_FILE` | 上传文件为空 |
+| `FILE_TOO_LARGE` | 超过 50 MB |
+| `EXTRACTION_FAILED` | PDF 解析失败 |

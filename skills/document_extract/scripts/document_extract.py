@@ -2,9 +2,9 @@
 """document_extract — AirParser PDF 文档内容提取 CLI 工具
 
 通过 AirParser REST API 将 PDF 文档提取为 Markdown。
-图片以原始分辨率保存为独立 PNG 文件。
+图片以原始分辨率保存为独立文件。
 服务端返回 zip 包（Markdown + 图片 + 元数据），客户端解包即可。
-纯 Python 标准库实现，零第三方依赖。要求 Python 3.8+。
+纯 Python 标准库实现，零第三方依赖。要求 Python 3.9+。
 """
 
 import argparse
@@ -24,6 +24,16 @@ from pathlib import Path
 
 DEFAULT_URL = "http://localhost:9103"
 DEFAULT_TIMEOUT = 300
+EXPECTED_VERSION = "3.0.0"
+
+# 服务端错误码（来自 app/router/convert.py）
+SERVER_ERRORS = {
+    "INVALID_REQUEST": "缺少文件名或请求格式错误",
+    "UNSUPPORTED_FORMAT": "不支持的文件格式（仅 PDF）",
+    "EMPTY_FILE": "上传文件为空",
+    "FILE_TOO_LARGE": "文件大小超过 50 MB 限制",
+    "EXTRACTION_FAILED": "PDF 解析处理失败",
+}
 
 
 # ── HTTP ──────────────────────────────────────────────────────────────
@@ -118,12 +128,24 @@ def api_request(base_url, endpoint, method="GET", files=None, form_fields=None, 
 
 
 def health_check(base_url, timeout):
-    """检查 AirParser 服务是否可达"""
+    """
+    检查 AirParser 服务是否可达且版本兼容。
+    返回 (ok: bool, info: str)
+    """
     try:
-        result = api_request(base_url, "health", timeout=timeout)
-        return isinstance(result, dict) and result.get("status") == "healthy"
-    except Exception:
-        return False
+        url = f"{base_url.rstrip('/')}/api/v1/health"
+        req = urllib.request.Request(url, method="GET")
+        opener = _build_opener()
+        with opener.open(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data.get("status") != "healthy":
+                return False, f"服务状态异常: {data}"
+            version = data.get("version", "unknown")
+            return True, f"v{version}"
+    except urllib.error.URLError as e:
+        return False, f"连接失败: {e.reason}"
+    except Exception as e:
+        return False, str(e)
 
 
 # ── 文档提取 ──────────────────────────────────────────────────────────
@@ -156,10 +178,26 @@ def extract_document(base_url, file_path, timeout=DEFAULT_TIMEOUT):
         timeout=timeout,
     )
 
+    # 服务端返回 200 + zip，但 zip 内 meta.json 可能标记为 failure
     if isinstance(result, dict) and result.get("_is_zip"):
         result["filename"] = file_path.name
+        # 检查 zip 内的 meta.json 状态
+        meta = _peek_meta(result["_zip_data"])
+        if meta and meta.get("status") == "failure":
+            return meta  # 返回服务端错误
 
     return result
+
+
+def _peek_meta(zip_data):
+    """快速读取 zip 中的 meta.json，不解压其他文件。"""
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+            if "meta.json" in zf.namelist():
+                return json.loads(zf.read("meta.json"))
+    except Exception:
+        pass
+    return None
 
 
 # ── Zip 解包 ──────────────────────────────────────────────────────────
@@ -168,9 +206,6 @@ def unpack_zip(zip_data, output_path):
     """
     将服务端返回的 zip 包解压到输出文件所在目录，
     并将文件名统一重命名为用户指定的输出文件名。
-
-    例如 zip 中为 upload_xxx.md + upload_xxx_images/，
-    重命名为 Project.md + Project_images/，使 Markdown 中的相对图片引用保持有效。
 
     返回 (meta_dict, image_count, images_dir_path)
     """
@@ -186,7 +221,6 @@ def unpack_zip(zip_data, output_path):
     with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
         for name in zf.namelist():
             if name.endswith("/"):
-                # 记录图片目录路径
                 if name.rstrip("/").endswith("_images"):
                     images_dir_source = os.path.join(output_dir, name.rstrip("/"))
                 continue
@@ -210,13 +244,11 @@ def unpack_zip(zip_data, output_path):
             elif "_images/" in name:
                 image_count += 1
                 if images_dir_source is None:
-                    # 从图片文件路径推导目录
                     idx = name.find("_images/")
                     if idx > 0:
                         images_dir_source = os.path.join(output_dir, name[:idx + len("_images")])
 
-        # 统一重命名：upload_xxx.md → Project.md, upload_xxx_images/ → Project_images/
-        old_images_dir_name = None
+        # 统一重命名：upload_xxx.md → output.md, upload_xxx_images/ → output_images/
         if md_source:
             md_base = os.path.splitext(os.path.basename(md_source))[0]
             if md_base != output_base:
@@ -231,18 +263,13 @@ def unpack_zip(zip_data, output_path):
                 if os.path.isdir(old_images_dir) and not os.path.exists(new_images_dir):
                     os.rename(old_images_dir, new_images_dir)
                     images_dir_source = new_images_dir
-                    old_images_dir_name = md_base + "_images"
 
-    # 修正 Markdown 中的图片路径
-    # ODL 生成的图片引用可能是绝对路径（如 /tmp/odl-xxx/basename_images/file.png），
-    # 替换为相对路径（如 Project_images/file.png）
+    # 修正 Markdown 中的图片路径为相对路径
     if image_count > 0 and os.path.exists(output_path):
         new_images_rel = output_base + "_images"
         with open(output_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        # 匹配 Markdown 图片语法中的路径，替换为相对路径
-        # 形如 ![alt](any/path/xxx_images/imageFile1.png) → ![alt](Project_images/imageFile1.png)
         def _fix_path(m):
             alt = m.group(1)
             path = m.group(2)
@@ -279,7 +306,12 @@ def format_error(result, elapsed=0):
     for err in errors:
         code = err.get("code", "UNKNOWN")
         message = err.get("message", "未知错误")
-        print(f"❌ [{code}] {message}", file=sys.stderr)
+        # 附加服务端错误码的中文说明
+        hint = SERVER_ERRORS.get(code, "")
+        line = f"❌ [{code}] {message}"
+        if hint and hint not in message:
+            line += f"（{hint}）"
+        print(line, file=sys.stderr)
 
     if elapsed:
         print(f"⏱ 耗时: {elapsed:.1f}s", file=sys.stderr)
@@ -307,10 +339,12 @@ def run(args):
     t0 = time.time()
     base_url = args.url.rstrip("/")
 
-    # 健康检查
-    if not health_check(base_url, timeout=args.timeout):
-        print(f"❌ AirParser 服务不可达 ({base_url})", file=sys.stderr)
+    # 健康检查（含版本信息）
+    ok, info = health_check(base_url, timeout=args.timeout)
+    if not ok:
+        print(f"❌ AirParser 服务不可达 ({base_url}) — {info}", file=sys.stderr)
         return 1
+    print(f"🔌 服务已连接: {info}", file=sys.stderr)
 
     result = extract_document(
         base_url=base_url,
