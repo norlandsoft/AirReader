@@ -6,6 +6,7 @@ import time
 import zipfile
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, UploadFile, File
 from fastapi.responses import StreamingResponse
@@ -77,7 +78,7 @@ async def convert_file(files: UploadFile = File(...)):
         return StreamingResponse(
             buf,
             media_type="application/zip",
-            headers={"Content-Disposition": f'attachment; filename="{base_name}.zip"'},
+            headers={"Content-Disposition": _content_disposition(base_name)},
         )
 
     except Exception as e:
@@ -137,8 +138,18 @@ def _error_zip(
     return StreamingResponse(
         buf,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{base_name}.zip"'},
+        headers={"Content-Disposition": _content_disposition(base_name)},
     )
+
+
+def _content_disposition(base_name: str) -> str:
+    """Build Content-Disposition header with RFC 5987 UTF-8 encoding for non-ASCII names."""
+    ascii_name = quote(f"{base_name}.zip", safe="")
+    try:
+        base_name.encode("latin-1")
+        return f'attachment; filename="{base_name}.zip"; filename*=UTF-8\'\'{ascii_name}'
+    except UnicodeEncodeError:
+        return f"attachment; filename=output.zip; filename*=UTF-8''{ascii_name}"
 
 
 def _cleanup(tmp_dir: Path = None, output_dir: Path = None):
