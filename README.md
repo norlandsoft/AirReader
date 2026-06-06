@@ -1,4 +1,4 @@
-# AirReader
+# AirParser
 
 PDF to Markdown conversion service powered by PyMuPDF + pdfplumber.
 
@@ -19,7 +19,7 @@ returning a zip package with Markdown and image assets.
 
 ```bash
 pip install -r requirements.txt
-uvicorn app.main:app --port 8000
+uvicorn app.main:app --port 9103
 ```
 
 ### Docker
@@ -33,14 +33,14 @@ docker compose up -d
 ### Health Check
 
 ```bash
-curl http://localhost:8000/api/v1/health
+curl http://localhost:9103/api/v1/health
 # {"status":"healthy","version":"3.0.0"}
 ```
 
 ### Convert PDF
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/convert/file \
+curl -X POST http://localhost:9103/api/v1/convert/file \
   -F "files=@document.pdf" \
   -o document.zip
 ```

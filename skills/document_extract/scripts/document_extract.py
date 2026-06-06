@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""document_extract — AirReader PDF 文档内容提取 CLI 工具
+"""document_extract — AirParser PDF 文档内容提取 CLI 工具
 
-通过 AirReader REST API 将 PDF 文档提取为 Markdown。
+通过 AirParser REST API 将 PDF 文档提取为 Markdown。
 图片以原始分辨率保存为独立 PNG 文件。
 服务端返回 zip 包（Markdown + 图片 + 元数据），客户端解包即可。
 纯 Python 标准库实现，零第三方依赖。要求 Python 3.8+。
@@ -48,7 +48,7 @@ def _build_opener():
 
 def api_request(base_url, endpoint, method="GET", files=None, form_fields=None, timeout=DEFAULT_TIMEOUT):
     """
-    向 AirReader API 发送请求。
+    向 AirParser API 发送请求。
 
     返回值：
     - 成功：{"status": "success", "_is_zip": True, "_zip_data": bytes}
@@ -60,7 +60,7 @@ def api_request(base_url, endpoint, method="GET", files=None, form_fields=None, 
     headers = {}
 
     if files:
-        boundary = f"----AirReader{uuid.uuid4().hex}"
+        boundary = f"----AirParser{uuid.uuid4().hex}"
         parts = []
 
         if form_fields:
@@ -118,7 +118,7 @@ def api_request(base_url, endpoint, method="GET", files=None, form_fields=None, 
 
 
 def health_check(base_url, timeout):
-    """检查 AirReader 服务是否可达"""
+    """检查 AirParser 服务是否可达"""
     try:
         result = api_request(base_url, "health", timeout=timeout)
         return isinstance(result, dict) and result.get("status") == "healthy"
@@ -130,7 +130,7 @@ def health_check(base_url, timeout):
 
 def extract_document(base_url, file_path, timeout=DEFAULT_TIMEOUT):
     """
-    通过 AirReader API 提取 PDF 文档内容。
+    通过 AirParser API 提取 PDF 文档内容。
 
     发送 PDF 文件，接收 zip 包（Markdown + 图片 + meta.json）。
     """
@@ -309,7 +309,7 @@ def run(args):
 
     # 健康检查
     if not health_check(base_url, timeout=args.timeout):
-        print(f"❌ AirReader 服务不可达 ({base_url})", file=sys.stderr)
+        print(f"❌ AirParser 服务不可达 ({base_url})", file=sys.stderr)
         return 1
 
     result = extract_document(
@@ -339,7 +339,7 @@ def run(args):
 def parse_args(argv=None):
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
-        description="document_extract — AirReader PDF 文档内容提取工具",
+        description="document_extract — AirParser PDF 文档内容提取工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="示例:\n"
                "  python3 document_extract.py report.pdf -o report.md\n"
@@ -347,7 +347,7 @@ def parse_args(argv=None):
     )
 
     parser.add_argument("input_file", help="PDF 文件路径")
-    parser.add_argument("--url", default=DEFAULT_URL, help=f"AirReader 服务地址（默认 {DEFAULT_URL}）")
+    parser.add_argument("--url", default=DEFAULT_URL, help=f"AirParser 服务地址（默认 {DEFAULT_URL}）")
     parser.add_argument("--output", "-o", required=True, help="输出文件路径")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                         help=f"HTTP 请求超时秒数（默认 {DEFAULT_TIMEOUT}）")

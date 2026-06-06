@@ -58,12 +58,12 @@ async def convert_file(files: UploadFile = File(...)):
     try:
         # Save to temp file — use original stem so extract_pdf outputs match
         base_name = Path(filename).stem
-        tmp_dir = Path(tempfile.mkdtemp(prefix="air-reader-upload-"))
+        tmp_dir = Path(tempfile.mkdtemp(prefix="air-parser-upload-"))
         tmp_file = tmp_dir / filename
         tmp_file.write_bytes(content)
 
         # Extract
-        output_dir = Path(tempfile.mkdtemp(prefix="air-reader-"))
+        output_dir = Path(tempfile.mkdtemp(prefix="air-parser-"))
         result = extract_pdf(tmp_file, output_dir)
 
         if not result["success"]:

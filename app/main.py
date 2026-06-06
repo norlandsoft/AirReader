@@ -15,7 +15,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
 )
 
-app = FastAPI(title="AirReader", version="3.0.0")
+app = FastAPI(title="AirParser", version="3.0.0")
 app.include_router(router)
 
 
