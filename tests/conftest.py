@@ -31,7 +31,7 @@ def image_pdf(tmp_path):
 
     # Create a 50x50 red PNG with PyMuPDF
     pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 50, 50))
-    pix.set_rect(pix.irect, (1.0, 0.0, 0.0))  # solid red
+    pix.set_rect(pix.irect, (255, 0, 0))  # solid red
     pix.save(str(img_path))
 
     # Embed in PDF
@@ -71,7 +71,7 @@ def mixed_pdf(tmp_path):
     # Create red image
     img_path = tmp_path / "red_mixed.png"
     pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 50, 50))
-    pix.set_rect(pix.irect, (1.0, 0.0, 0.0))
+    pix.set_rect(pix.irect, (255, 0, 0))
     pix.save(str(img_path))
     pix = None
 
