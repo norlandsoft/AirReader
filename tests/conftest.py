@@ -95,7 +95,7 @@ def mixed_pdf(tmp_path):
     doc = fitz.open(str(pdf_path))
     page = doc[0]
     page.insert_image(fitz.Rect(72, A4[1] - 350, 172, A4[1] - 250), filename=str(img_path))
-    doc.save(str(pdf_path))
+    doc.save(str(pdf_path), incremental=True, encryption=0)
     doc.close()
 
     return pdf_path

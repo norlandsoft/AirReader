@@ -99,3 +99,47 @@ class TestImageExtraction:
             # Note: all 3 may share same xref, so this tests position filtering
             # We expect at most 1 image file
             assert len(image_files) <= 1
+
+
+class TestTableExtraction:
+    def test_table_in_markdown(self, table_pdf):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            result = extract_pdf(table_pdf, output_dir)
+
+            assert result["success"] is True
+            content = (output_dir / "table_test.md").read_text(encoding="utf-8")
+            # Table should be rendered as markdown pipe syntax
+            assert "|" in content
+
+    def test_table_has_header_separator(self, table_pdf):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            result = extract_pdf(table_pdf, output_dir)
+
+            assert result["success"] is True
+            content = (output_dir / "table_test.md").read_text(encoding="utf-8")
+            # Markdown table should have separator row: | --- | --- |
+            assert "---" in content
+
+
+class TestMixedContent:
+    def test_mixed_pdf_produces_markdown(self, mixed_pdf):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            result = extract_pdf(mixed_pdf, output_dir)
+
+            assert result["success"] is True
+            content = (output_dir / "mixed_test.md").read_text(encoding="utf-8")
+            # Should have text content
+            assert len(content) > 0
+
+    def test_mixed_pdf_creates_images(self, mixed_pdf):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            result = extract_pdf(mixed_pdf, output_dir)
+
+            assert result["success"] is True
+            images_dir = output_dir / "mixed_test_images"
+            assert images_dir.is_dir()
+            assert len(list(images_dir.iterdir())) >= 1

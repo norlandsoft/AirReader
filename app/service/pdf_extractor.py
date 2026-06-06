@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 import fitz  # PyMuPDF
+import pdfplumber
 
 logger = logging.getLogger(__name__)
 
@@ -98,10 +99,14 @@ def _process_page(
     smask_xrefs: set,
     extracted_xrefs: set,
 ) -> str:
-    """Process a single page: extract text and images, return markdown."""
+    """Process a single page: extract text, tables, and images, return markdown."""
     logger.debug("Processing page %d", page_num)
+
     # Text
     text = page.get_text("text").strip()
+
+    # Tables (pdfplumber) — opened separately from PyMuPDF
+    table_md = _extract_tables(str(doc.name), page_num)
 
     # Images — get positions for header/footer filtering
     page_height = page.rect.height
@@ -138,10 +143,41 @@ def _process_page(
     parts = []
     if text:
         parts.append(text)
+    if table_md:
+        parts.append(table_md)
     if image_refs:
         parts.append("\n\n".join(image_refs))
 
     return "\n\n".join(parts)
+
+
+def _extract_tables(pdf_path: str, page_num: int) -> str:
+    """Extract tables from a page using pdfplumber, return markdown."""
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            if page_num >= len(pdf.pages):
+                return ""
+            page = pdf.pages[page_num]
+            tables = page.extract_tables()
+            if not tables:
+                return ""
+
+            table_parts = []
+            for table in tables:
+                if not table or len(table) == 0:
+                    continue
+                lines = []
+                for i, row in enumerate(table):
+                    cells = [str(cell or "").strip() for cell in row]
+                    lines.append("| " + " | ".join(cells) + " |")
+                    if i == 0:
+                        lines.append("| " + " | ".join(["---"] * len(cells)) + " |")
+                table_parts.append("\n".join(lines))
+
+            return "\n\n".join(table_parts)
+    except Exception as e:
+        logger.debug("Table extraction failed for page %d: %s", page_num, e)
+        return ""
 
 
 def _get_image_positions(page: fitz.Page) -> Dict[int, float]:
