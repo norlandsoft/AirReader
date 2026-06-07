@@ -313,6 +313,8 @@ def _find_table_regions(pdf_path: str, page_num: int) -> List[Dict]:
                 bbox = table.bbox
                 y_center = (bbox[1] + bbox[3]) / 2
                 table_data = table.extract()
+                if not _is_likely_table(table_data):
+                    continue
                 md = _table_to_markdown(table_data)
                 if md:
                     result.append({
@@ -324,6 +326,38 @@ def _find_table_regions(pdf_path: str, page_num: int) -> List[Dict]:
     except Exception as e:
         logger.debug("Table detection failed for page %d: %s", page_num, e)
         return []
+
+
+def _is_likely_table(table_data) -> bool:
+    """
+    Filter false-positive table detections from pdfplumber.
+
+    pdfplumber sometimes misidentifies wrapped paragraph text as a table.
+    Heuristic: real tables have short header labels; false positives have
+    long cells in every row (continuous paragraph text split across columns).
+    """
+    if not table_data or len(table_data) < 2:
+        return False
+
+    first_row = table_data[0]
+    if not first_row:
+        return False
+
+    # Average cell length in the header row
+    header_avg = sum(len(str(cell or "").strip()) for cell in first_row) / len(first_row)
+
+    # Real table headers are short labels; long "headers" are wrapped text
+    if header_avg > 15:
+        return False
+
+    # For very small tables (≤2 data rows), also check that not ALL cells are long
+    if len(table_data) <= 3:
+        all_cells = [str(cell or "").strip() for row in table_data for cell in row]
+        avg_all = sum(len(c) for c in all_cells) / len(all_cells) if all_cells else 0
+        if avg_all > 20:
+            return False
+
+    return True
 
 
 def _table_to_markdown(table_data) -> str:

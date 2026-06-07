@@ -1,10 +1,10 @@
 ---
-name: document_extract
+name: document_parser
 description: Use when converting PDF files to Markdown with images via the AirParser service.
 source: project
 ---
 
-# document_extract — PDF 文档提取
+# document_parser — PDF 文档解析
 
 将 PDF 文档提取为 Markdown + 原始分辨率图片。
 
@@ -34,11 +34,11 @@ source: project
 
 ```bash
 # 基本用法
-python3 scripts/document_extract.py report.pdf -o report.md
+python3 scripts/document_parser.py report.pdf -o report.md
 # 输出: report.md + report_images/
 
 # 指定服务地址
-python3 scripts/document_extract.py slides.pdf \
+python3 scripts/document_parser.py slides.pdf \
   --url http://192.168.1.100:9103 -o slides.md
 ```
 

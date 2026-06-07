@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""document_extract — AirParser PDF 文档内容提取 CLI 工具
+"""document_parser — AirParser PDF 文档解析 CLI 工具
 
 通过 AirParser REST API 将 PDF 文档提取为 Markdown。
 图片以原始分辨率保存为独立文件。
@@ -373,11 +373,11 @@ def run(args):
 def parse_args(argv=None):
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
-        description="document_extract — AirParser PDF 文档内容提取工具",
+        description="document_parser — AirParser PDF 文档解析工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="示例:\n"
-               "  python3 document_extract.py report.pdf -o report.md\n"
-               "  python3 document_extract.py slides.pdf --url http://192.168.1.100:9103 -o slides.md",
+               "  python3 document_parser.py report.pdf -o report.md\n"
+               "  python3 document_parser.py slides.pdf --url http://192.168.1.100:9103 -o slides.md",
     )
 
     parser.add_argument("input_file", help="PDF 文件路径")
