@@ -1,8 +1,5 @@
 services:
   air-parser:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: air-parser:3.0.0
     container_name: parser.air
     ports:

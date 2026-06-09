@@ -25,6 +25,10 @@ uvicorn app.main:app --port 9103
 ### Docker
 
 ```bash
+# 1. 构建镜像
+docker build -t air-parser:3.0.0 .
+
+# 2. 启动服务
 docker compose up -d
 ```
 
